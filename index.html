@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#6FD7EC" />
+  <title>Super Sexy Boys · Body Tracker</title>
+  <meta name="description" content="Daniel + Kevin body recomposition tracker." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,400;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="aero-bg" aria-hidden="true">
+    <div class="aero-photo"></div>
+    <div class="aero-sun"></div>
+    <div class="bubbles">
+      <span class="bub b1"></span><span class="bub b2"></span><span class="bub b3"></span>
+      <span class="bub b4"></span><span class="bub b5"></span><span class="bub b6"></span>
+      <span class="bub b7"></span><span class="bub b8"></span><span class="bub b9"></span>
+    </div>
+    <div class="aero-grass"></div>
+  </div>
+
+  <div class="wrap">
+    <header class="top">
+      <div class="brand">
+        <h1>SUPER <span class="glo">SEXY</span> BOYS</h1>
+        <p class="tag">Operation: lower body fat % <span id="syncDot" class="dot" title="status"></span><span id="syncText" class="sync">…</span></p>
+      </div>
+    </header>
+
+    <section id="cards" class="cards" aria-label="Scorecards"></section>
+
+    <section class="panel chart-panel">
+      <div class="panel-head">
+        <h2>Trend</h2>
+        <div id="metricChips" class="chips" role="tablist" aria-label="Metric"></div>
+      </div>
+      <div id="chart" class="chart"></div>
+      <div id="legend" class="legend"></div>
+    </section>
+
+    <div class="grid-2">
+      <section class="panel">
+        <div class="panel-head"><h2>Body composition</h2><span class="sub">latest · lean vs fat</span></div>
+        <div id="composition" class="composition"></div>
+      </section>
+      <section class="panel">
+        <div class="panel-head"><h2>Body fat % vs goal</h2><span class="sub">progress</span></div>
+        <div id="gauges" class="gauges"></div>
+      </section>
+    </div>
+
+    <section id="pending" class="pending" hidden></section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Log a measurement</h2>
+        <button id="toggleForm" class="ghost" aria-expanded="false">+ Add</button>
+      </div>
+
+      <form id="entryForm" class="form" hidden>
+        <div class="row">
+          <label class="field">
+            <span>Who</span>
+            <select name="person" required>
+              <option value="daniel">Daniel</option>
+              <option value="kevin">Kevin</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Date</span>
+            <input type="date" name="date" required />
+          </label>
+          <label class="field">
+            <span>Source</span>
+            <input type="text" name="source" placeholder="InBody / Scale" />
+          </label>
+        </div>
+        <div class="row metrics">
+          <label class="field"><span>Body Fat %</span><input type="number" step="0.1" name="bodyFatPct" inputmode="decimal" placeholder="11.7" /></label>
+          <label class="field"><span>Weight (lb)</span><input type="number" step="0.1" name="weight" inputmode="decimal" placeholder="135.1" /></label>
+          <label class="field"><span>Muscle (lb)</span><input type="number" step="0.1" name="skeletalMuscle" inputmode="decimal" placeholder="67.5" /></label>
+          <label class="field"><span>Fat mass (lb)</span><input type="number" step="0.1" name="bodyFatMass" inputmode="decimal" placeholder="15.9" /></label>
+          <label class="field"><span>BMI</span><input type="number" step="0.1" name="bmi" inputmode="decimal" placeholder="20.2" /></label>
+        </div>
+        <label class="field full"><span>Note</span><input type="text" name="note" maxlength="240" placeholder="optional" /></label>
+        <div class="form-actions">
+          <button type="submit" class="primary">Save entry</button>
+          <span class="or">or</span>
+          <label class="upload-btn">
+            📸 Upload screenshot
+            <input id="shotInput" type="file" accept="image/*" capture="environment" hidden />
+          </label>
+        </div>
+        <p class="hint">Upload a scale / InBody screenshot now — I'll read the numbers off it later and add them in.</p>
+      </form>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><h2>History</h2></div>
+      <div class="table-scroll">
+        <table id="history" class="history">
+          <thead>
+            <tr><th>Date</th><th>Who</th><th>BF%</th><th>Wt</th><th>Musc</th><th>Fat</th><th>BMI</th><th>Src</th><th></th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <footer class="foot">Data syncs to a private store. Numbers from consumer scales read high vs. InBody — compare each person to their own baseline.</footer>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+  <script src="/app.js" type="module"></script>
+</body>
+</html>
