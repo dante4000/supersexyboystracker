@@ -4,7 +4,7 @@
 //   npm run pull-uploads
 //
 // Reads BLOB_READ_WRITE_TOKEN from .env.local (or the environment).
-import { get } from '@vercel/blob';
+import { get, list } from '@vercel/blob';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,9 +25,38 @@ async function loadEnv() {
 }
 
 async function getJson(path) {
-  const r = await get(path, { access: 'private' });
+  const r = await get(path, { access: 'private', useCache: false });
   if (!r || r.statusCode !== 200 || !r.stream) return null;
   return JSON.parse(await new Response(r.stream).text());
+}
+
+async function getBlob(pathOrUrl) {
+  const r = await get(pathOrUrl, { access: 'private', useCache: false });
+  if (!r || r.statusCode !== 200 || !r.stream) return null;
+  return r;
+}
+
+async function findLegacyBlobPath(upload) {
+  const stored = String(upload.blobPath || '').trim();
+  if (!stored) return null;
+  const dot = stored.lastIndexOf('.');
+  const prefix = dot > 0 ? stored.slice(0, dot) : stored;
+  const result = await list({ prefix, limit: 10 });
+  if (!result.blobs.length) return null;
+  const exact = result.blobs.find((b) => b.pathname === stored);
+  return (exact || result.blobs[0]).pathname;
+}
+
+async function readUploadBlob(upload) {
+  for (const candidate of [upload.blobPath, upload.pathname, upload.url].filter(Boolean)) {
+    const blob = await getBlob(candidate).catch(() => null);
+    if (blob) return { blob, path: candidate };
+  }
+
+  const legacyPath = await findLegacyBlobPath(upload).catch(() => null);
+  if (!legacyPath) return null;
+  const blob = await getBlob(legacyPath).catch(() => null);
+  return blob ? { blob, path: legacyPath } : null;
 }
 
 async function main() {
@@ -49,9 +78,11 @@ async function main() {
 
   for (const u of pending) {
     try {
-      const r = await get(u.blobPath, { access: 'private' });
-      const buf = Buffer.from(await new Response(r.stream).arrayBuffer());
-      const local = join(OUT_DIR, `${u.person}__${basename(u.blobPath)}`);
+      const found = await readUploadBlob(u);
+      if (!found) throw new Error('blob not found');
+      const buf = Buffer.from(await new Response(found.blob.stream).arrayBuffer());
+      const pathname = (found.blob.blob && found.blob.blob.pathname) || found.path;
+      const local = join(OUT_DIR, `${u.person}__${basename(pathname)}`);
       await writeFile(local, buf);
       console.log(`  ${u.person.padEnd(7)} ${u.uploadedAt}  ->  ${local}  (id: ${u.id})`);
     } catch (e) {

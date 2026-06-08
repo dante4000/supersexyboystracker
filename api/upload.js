@@ -4,13 +4,22 @@
 //
 // POST /api/upload?person=daniel&ext=png   (body = raw image bytes)
 //   -> { ok: true, upload: { id, person, blobPath, uploadedAt } }
-import { get, put } from '@vercel/blob';
+import { put } from '@vercel/blob';
+import { loadData, writeData } from './dataset.js';
 
-const DATA_PATH = 'tracker/data.json';
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const OK_EXT = new Set(['png', 'jpg', 'jpeg', 'webp', 'heic', 'heif']);
 
 async function readRaw(req) {
+  // Vercel's runtime buffers and consumes the request stream before the handler
+  // runs, exposing the bytes on req.body (a Buffer for binary content types).
+  // Iterating `req` here would yield nothing, so read req.body first and only
+  // fall back to streaming for runtimes that leave the stream intact.
+  const b = req.body;
+  if (Buffer.isBuffer(b)) return b;
+  if (b instanceof Uint8Array) return Buffer.from(b);
+  if (typeof b === 'string') return Buffer.from(b, 'binary');
+  if (b && typeof b === 'object' && b.type === 'Buffer' && Array.isArray(b.data)) return Buffer.from(b.data);
   const chunks = [];
   let total = 0;
   for await (const c of req) {
@@ -19,18 +28,6 @@ async function readRaw(req) {
     chunks.push(c);
   }
   return Buffer.concat(chunks);
-}
-
-async function readData() {
-  try {
-    const result = await get(DATA_PATH, { access: 'private' });
-    if (!result || result.statusCode !== 200 || !result.stream) return null;
-    const text = await new Response(result.stream).text();
-    return JSON.parse(text);
-  } catch (e) {
-    if (e && (e.name === 'BlobNotFoundError' || /not.?found/i.test(String(e.message)))) return null;
-    throw e;
-  }
 }
 
 export default async function handler(req, res) {
@@ -52,36 +49,33 @@ export default async function handler(req, res) {
 
     const bytes = await readRaw(req);
     if (!bytes.length) return res.status(400).json({ error: 'empty body' });
+    if (bytes.length > MAX_IMAGE_BYTES) return res.status(413).json({ error: 'image too large' });
 
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     const blobPath = `tracker/uploads/${person}/${stamp}.${ext}`;
-    await put(blobPath, bytes, {
+    // Derive the stored content type from the extension — the request arrives as
+    // application/octet-stream so the runtime preserves the raw bytes.
+    const blob = await put(blobPath, bytes, {
       access: 'private',
       allowOverwrite: false,
       addRandomSuffix: true,
-      contentType: req.headers['content-type'] || `image/${ext === 'jpg' ? 'jpeg' : ext}`,
+      contentType: `image/${ext === 'jpg' ? 'jpeg' : ext}`,
     });
 
     const upload = {
       id: `u-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       person,
-      blobPath,
+      blobPath: blob.pathname,
+      url: blob.url,
+      contentType: blob.contentType,
       uploadedAt: new Date().toISOString(),
       bytes: bytes.length,
     };
 
-    // Record it as pending. Best-effort: if the dataset write races, the blob still exists.
-    const data = (await readData()) || null;
-    if (data) {
-      data.pendingUploads = data.pendingUploads || [];
-      data.pendingUploads.push(upload);
-      await put(DATA_PATH, JSON.stringify(data), {
-        access: 'private',
-        allowOverwrite: true,
-        contentType: 'application/json',
-        addRandomSuffix: false,
-      });
-    }
+    const data = await loadData({ seed: false });
+    data.pendingUploads = data.pendingUploads || [];
+    data.pendingUploads.push(upload);
+    await writeData(data);
 
     return res.status(200).json({ ok: true, upload });
   } catch (e) {

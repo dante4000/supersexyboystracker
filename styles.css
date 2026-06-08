@@ -31,6 +31,9 @@
 }
 
 * { box-sizing: border-box; }
+/* The [hidden] attribute must beat component display rules (.form{display:grid},
+   .pending{display:flex}), which otherwise keep "hidden" elements on screen. */
+[hidden] { display: none !important; }
 html, body { margin: 0; }
 body {
   min-height: 100dvh;
@@ -131,11 +134,6 @@ body {
   border: 1px solid rgba(255,255,255,0.45); box-shadow: inset 0 1px 0 rgba(255,255,255,0.5);
   text-shadow: 0 1px 2px rgba(0,50,100,0.5);
 }
-.dot { width: 9px; height: 9px; border-radius: 50%; background: #cfe7f5; display: inline-block; box-shadow: inset 0 1px 1px rgba(255,255,255,0.8); }
-.dot.ok { background: radial-gradient(circle at 35% 30%, #d6ffb0, #5EC343); box-shadow: 0 0 8px #7ee23f; }
-.dot.off { background: radial-gradient(circle at 35% 30%, #ffd9a6, #F4801A); }
-.sync { font-size: 12px; color: #dff0fb; }
-
 /* ---------- Scorecards ---------- */
 .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .card { padding: 16px 16px 15px; overflow: hidden; transition: transform 0.18s ease, box-shadow 0.18s ease; }
@@ -297,7 +295,15 @@ body {
 .history tbody tr:hover { background: rgba(255,255,255,0.4); }
 .history td b { color: var(--ink); font-weight: 800; }
 .history .who-pip { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: middle; box-shadow: inset 0 1px 1px rgba(255,255,255,0.8); }
-.history .del { color: var(--ink-faint); cursor: pointer; background: none; border: none; font-size: 14px; }
+.history .row-actions { display: inline-flex; align-items: center; gap: 6px; }
+.history .edit, .history .del {
+  cursor: pointer; border: none; font-family: inherit; font-weight: 800;
+  background: rgba(255,255,255,0.42); color: var(--ink-faint);
+  border-radius: 999px; min-height: 26px;
+}
+.history .edit { padding: 4px 9px; font-size: 11px; }
+.history .del { width: 26px; padding: 0; font-size: 14px; }
+.history .edit:hover { color: var(--sky-deep); background: rgba(255,255,255,0.65); }
 .history .del:hover { color: var(--bad); }
 
 .foot { margin-top: 24px; text-align: center; color: #eaf7ff; font-size: 11px; line-height: 1.6; text-shadow: 0 1px 3px rgba(0,50,100,0.5); }

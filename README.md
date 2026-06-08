@@ -30,8 +30,8 @@ Static HTML/CSS/JS + Vercel serverless functions + Vercel Blob (private). No bui
 2. Add a **Blob** store and set `BLOB_READ_WRITE_TOKEN` (for local dev, put it in `.env.local`).
 3. Deploy. The dataset seeds itself with the two baseline readings on first GET.
 
-The dashboard still renders offline from a localStorage cache + baked-in seed, and queues
-writes until the API is reachable.
+The dashboard reads and writes straight to the API; if a save fails it surfaces an error and
+re-syncs from the server rather than keeping a stale local copy.
 
 ## Processing uploaded screenshots
 ```

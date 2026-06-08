@@ -27,7 +27,7 @@
     <header class="top">
       <div class="brand">
         <h1>SUPER <span class="glo">SEXY</span> BOYS</h1>
-        <p class="tag">Operation: lower body fat % <span id="syncDot" class="dot" title="status"></span><span id="syncText" class="sync">…</span></p>
+        <p class="tag">Operation: lower body fat %</p>
       </div>
     </header>
 
@@ -58,7 +58,7 @@
     <section class="panel">
       <div class="panel-head">
         <h2>Log a measurement</h2>
-        <button id="toggleForm" class="ghost" aria-expanded="false">+ Add</button>
+        <button id="toggleForm" class="ghost" type="button" aria-expanded="false">+ Add</button>
       </div>
 
       <form id="entryForm" class="form" hidden>
@@ -80,11 +80,11 @@
           </label>
         </div>
         <div class="row metrics">
-          <label class="field"><span>Body Fat %</span><input type="number" step="0.1" name="bodyFatPct" inputmode="decimal" placeholder="11.7" /></label>
-          <label class="field"><span>Weight (lb)</span><input type="number" step="0.1" name="weight" inputmode="decimal" placeholder="135.1" /></label>
-          <label class="field"><span>Muscle (lb)</span><input type="number" step="0.1" name="skeletalMuscle" inputmode="decimal" placeholder="67.5" /></label>
-          <label class="field"><span>Fat mass (lb)</span><input type="number" step="0.1" name="bodyFatMass" inputmode="decimal" placeholder="15.9" /></label>
-          <label class="field"><span>BMI</span><input type="number" step="0.1" name="bmi" inputmode="decimal" placeholder="20.2" /></label>
+          <label class="field"><span>Body Fat %</span><input type="number" step="0.1" min="0" max="75" name="bodyFatPct" inputmode="decimal" placeholder="11.7" /></label>
+          <label class="field"><span>Weight (lb)</span><input type="number" step="0.1" min="1" max="1000" name="weight" inputmode="decimal" placeholder="135.1" /></label>
+          <label class="field"><span>Muscle (lb)</span><input type="number" step="0.1" min="0" max="500" name="skeletalMuscle" inputmode="decimal" placeholder="67.5" /></label>
+          <label class="field"><span>Fat mass (lb)</span><input type="number" step="0.1" min="0" max="500" name="bodyFatMass" inputmode="decimal" placeholder="15.9" /></label>
+          <label class="field"><span>BMI</span><input type="number" step="0.1" min="5" max="100" name="bmi" inputmode="decimal" placeholder="20.2" /></label>
         </div>
         <label class="field full"><span>Note</span><input type="text" name="note" maxlength="240" placeholder="optional" /></label>
         <div class="form-actions">
@@ -104,7 +104,7 @@
       <div class="table-scroll">
         <table id="history" class="history">
           <thead>
-            <tr><th>Date</th><th>Who</th><th>BF%</th><th>Wt</th><th>Musc</th><th>Fat</th><th>BMI</th><th>Src</th><th></th></tr>
+            <tr><th>Date</th><th>Who</th><th>BF%</th><th>Wt</th><th>Musc</th><th>Fat</th><th>BMI</th><th>Src</th><th>Actions</th></tr>
           </thead>
           <tbody></tbody>
         </table>

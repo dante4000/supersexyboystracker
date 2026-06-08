@@ -1,5 +1,5 @@
-// Super Sexy Boys body tracker — client. Reads/writes the dataset via /api/data,
-// falls back to a localStorage cache and a baked-in seed so it always renders something.
+// Super Sexy Boys body tracker — client. Reads/writes the dataset via /api/data.
+// A baked-in seed provides the first paint until the GET resolves.
 
 const SEED = {
   version: 1,
@@ -22,12 +22,17 @@ const METRICS = [
   { key: 'bodyFatMass', label: 'Fat mass', unit: 'lb', lowerBetter: true },
   { key: 'bmi', label: 'BMI', unit: '', lowerBetter: true },
 ];
-const CACHE_KEY = 'sbt-data-v1';
+const FIELD_RULES = {
+  bodyFatPct: { label: 'Body Fat %', min: 0, max: 75 },
+  weight: { label: 'Weight', min: 1, max: 1000 },
+  skeletalMuscle: { label: 'Muscle', min: 0, max: 500 },
+  bodyFatMass: { label: 'Fat mass', min: 0, max: 500 },
+  bmi: { label: 'BMI', min: 5, max: 100 },
+};
 const PEOPLE = ['daniel', 'kevin'];
 
-let data = loadCache() || clone(SEED);
+let data = clone(SEED);
 let metric = 'bodyFatPct';
-let online = false;
 const counted = new Set();
 const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const finePointer = window.matchMedia && window.matchMedia('(pointer: fine)').matches;
@@ -46,22 +51,36 @@ const el = (tag, attrs = {}, ...kids) => {
 const svgEl = (tag, attrs = {}, ...kids) => el(tag, { ...attrs, _ns: 'http://www.w3.org/2000/svg' }, ...kids);
 
 function clone(x) { return JSON.parse(JSON.stringify(x)); }
-function loadCache() { try { return JSON.parse(localStorage.getItem(CACHE_KEY)); } catch { return null; } }
-function saveCache() { try { localStorage.setItem(CACHE_KEY, JSON.stringify(data)); } catch {} }
 function fmt(n, d = 1) { return n == null || !Number.isFinite(n) ? '—' : Number(n).toFixed(d).replace(/\.0$/, ''); }
-function entriesFor(p) { return data.entries.filter((e) => e.person === p).sort((a, b) => (a.date < b.date ? -1 : 1)); }
+function compareEntries(a, b) {
+  if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+  if (a.person !== b.person) return a.person < b.person ? -1 : 1;
+  return String(a.id || '').localeCompare(String(b.id || ''));
+}
+function metricValue(entry, key) {
+  const value = entry && Number(entry[key]);
+  return entry && entry[key] != null && Number.isFinite(value) ? value : null;
+}
+function entriesFor(p) { return data.entries.filter((e) => e.person === p).sort(compareEntries); }
+function entriesWith(p, key) { return entriesFor(p).filter((e) => metricValue(e, key) != null); }
+function latestEntry(p, key = null) {
+  const list = key ? entriesWith(p, key) : entriesFor(p);
+  return list[list.length - 1] || null;
+}
+function firstEntry(p, key = null) {
+  const list = key ? entriesWith(p, key) : entriesFor(p);
+  return list[0] || null;
+}
+function latestValue(p, key) {
+  const entry = latestEntry(p, key);
+  return metricValue(entry, key);
+}
 
 function toast(msg) {
   const t = $('#toast');
   t.textContent = msg; t.hidden = false;
   clearTimeout(toast._t);
   toast._t = setTimeout(() => { t.hidden = true; }, 2600);
-}
-
-function setSync(ok) {
-  online = ok;
-  $('#syncDot').className = 'dot ' + (ok ? 'ok' : 'off');
-  $('#syncText').textContent = ok ? 'synced' : 'offline';
 }
 
 async function api(method, body) {
@@ -74,23 +93,24 @@ async function api(method, body) {
 
 async function load() {
   try {
-    const fresh = await api('GET');
-    data = fresh; saveCache(); setSync(true);
+    data = await api('GET');
   } catch {
-    setSync(false);
+    toast('Couldn’t reach the server');
   }
   renderAll();
 }
 
-// Persist a mutation: optimistic local render, then POST. On success adopt server truth.
+// Persist a mutation: render the caller's optimistic change, POST, adopt server
+// truth. If the POST fails, reload from the server so we never show a phantom save.
 async function mutate(payload) {
-  saveCache(); renderAll();
+  renderAll();
   try {
-    const fresh = await api('POST', payload);
-    data = fresh; saveCache(); setSync(true); renderAll();
+    data = await api('POST', payload);
+    renderAll();
     return true;
-  } catch (e) {
-    setSync(false); toast('Saved locally — will sync when online');
+  } catch {
+    toast('Save failed — check your connection');
+    await load();
     return false;
   }
 }
@@ -100,9 +120,9 @@ function renderCards() {
   const root = $('#cards'); root.innerHTML = '';
   for (const p of PEOPLE) {
     const person = data.people[p];
-    const list = entriesFor(p);
-    const latest = list[list.length - 1];
-    const first = list[0];
+    const latest = latestEntry(p);
+    const latestBf = latestEntry(p, 'bodyFatPct');
+    const firstBf = firstEntry(p, 'bodyFatPct');
     const accent = person.accent;
 
     const card = el('div', { class: 'card', style: `--accent:${accent}` });
@@ -112,14 +132,14 @@ function renderCards() {
       el('span', { class: 'src', text: latest ? `${latest.source} · ${latest.date}` : 'no data' }),
     ));
 
-    const bfVal = latest ? latest.bodyFatPct : null;
+    const bfVal = metricValue(latestBf, 'bodyFatPct');
     const numEl = el('span', { class: 'num', text: fmt(bfVal) });
     card.append(el('div', { class: 'bf' }, numEl, el('span', { class: 'unit', text: '% body fat' })));
     if (bfVal != null) countUp(numEl, bfVal, p);
 
     // delta vs baseline
-    if (latest && first && first.id !== latest.id && bfVal != null && first.bodyFatPct != null) {
-      const d = bfVal - first.bodyFatPct;
+    if (latestBf && firstBf && firstBf.id !== latestBf.id) {
+      const d = bfVal - metricValue(firstBf, 'bodyFatPct');
       const cls = d < 0 ? 'good' : d > 0 ? 'bad' : 'flat';
       const arrow = d < 0 ? '▼' : d > 0 ? '▲' : '■';
       card.append(el('div', { class: `delta ${cls}`, text: `${arrow} ${Math.abs(d).toFixed(1)}% since baseline` }));
@@ -130,23 +150,25 @@ function renderCards() {
     const mini = el('div', { class: 'mini' });
     const stat = (label, v, u) => el('div', {}, el('span', { text: label }), el('b', { text: v == null ? '—' : `${fmt(v)}${u}` }));
     mini.append(
-      stat('Weight', latest && latest.weight, ' lb'),
-      stat('Muscle', latest && latest.skeletalMuscle, ' lb'),
-      stat('Fat mass', latest && latest.bodyFatMass, ' lb'),
-      stat('BMI', latest && latest.bmi, ''),
+      stat('Weight', latestValue(p, 'weight'), ' lb'),
+      stat('Muscle', latestValue(p, 'skeletalMuscle'), ' lb'),
+      stat('Fat mass', latestValue(p, 'bodyFatMass'), ' lb'),
+      stat('BMI', latestValue(p, 'bmi'), ''),
     );
     card.append(mini);
 
     // goal bar
     const gb = el('div', { class: 'goalbar' });
-    if (person.goalBf && bfVal != null && first && first.bodyFatPct != null) {
-      const start = first.bodyFatPct, goal = person.goalBf;
+    if (person.goalBf != null && bfVal != null && firstBf) {
+      const start = metricValue(firstBf, 'bodyFatPct'), goal = person.goalBf;
       const prog = Math.max(0, Math.min(1, (start - bfVal) / Math.max(0.1, start - goal)));
       gb.append(el('div', { class: 'track' }, el('div', { class: 'fill', style: `width:${(prog * 100).toFixed(0)}%` })));
       gb.append(el('div', { class: 'glabel' },
         el('span', { text: `goal ${goal}%` }),
         el('a', { 'data-goal': p, text: bfVal <= goal ? '🎯 hit!' : `${(bfVal - goal).toFixed(1)}% to go` }),
       ));
+    } else if (person.goalBf != null) {
+      gb.append(el('div', { class: 'glabel' }, el('span', { text: `goal ${person.goalBf}%` }), el('a', { 'data-goal': p, text: 'edit goal' })));
     } else {
       gb.append(el('div', { class: 'glabel' }, el('span', { text: 'no goal set' }), el('a', { 'data-goal': p, text: '+ set goal' })));
     }
@@ -187,8 +209,13 @@ async function setGoal(p) {
   const cur = data.people[p].goalBf;
   const raw = prompt(`${data.people[p].name}'s body-fat % goal:`, cur || '');
   if (raw === null) return;
-  const n = Number(raw);
-  data.people[p].goalBf = Number.isFinite(n) && n > 0 ? n : null;
+  const text = String(raw).trim();
+  const n = text === '' ? null : Number(text);
+  if (n != null && (!Number.isFinite(n) || n <= 0 || n > 75)) {
+    toast('Enter a goal between 0 and 75%');
+    return;
+  }
+  data.people[p].goalBf = n;
   await mutate({ action: 'setGoal', person: p, goalBf: data.people[p].goalBf });
 }
 
@@ -209,10 +236,12 @@ function renderChart() {
 
   const series = PEOPLE.map((p) => ({
     p, accent: data.people[p].accent, goal: m.goal ? data.people[p].goalBf : null,
-    pts: entriesFor(p).map((e) => ({ t: Date.parse(e.date), v: e[m.key], d: e.date })).filter((d) => d.v != null && Number.isFinite(d.t)),
+    pts: entriesFor(p)
+      .map((e) => ({ t: Date.parse(e.date), v: metricValue(e, m.key), d: e.date }))
+      .filter((d) => d.v != null && Number.isFinite(d.t)),
   }));
 
-  const allV = series.flatMap((s) => s.pts.map((d) => d.v)).concat(series.map((s) => s.goal).filter(Boolean));
+  const allV = series.flatMap((s) => s.pts.map((d) => d.v)).concat(series.map((s) => s.goal).filter((v) => v != null));
   const allT = series.flatMap((s) => s.pts.map((d) => d.t));
 
   const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'none', role: 'img', 'aria-label': `${m.label} over time` });
@@ -314,14 +343,19 @@ function renderLegend(series, m) {
 /* ---------- Body composition (lean vs fat) ---------- */
 // Fat mass: use the logged value, else derive from weight × body-fat %. Lean = weight − fat.
 function compFor(p) {
-  const latest = entriesFor(p).slice(-1)[0];
-  if (!latest || latest.weight == null) return null;
-  let fat = latest.bodyFatMass;
+  const latest = [...entriesFor(p)].reverse().find((e) => (
+    metricValue(e, 'weight') != null &&
+    (metricValue(e, 'bodyFatMass') != null || metricValue(e, 'bodyFatPct') != null)
+  ));
+  if (!latest) return null;
+  const weight = metricValue(latest, 'weight');
+  let fat = metricValue(latest, 'bodyFatMass');
   let derived = false;
-  if (fat == null && latest.bodyFatPct != null) { fat = latest.weight * latest.bodyFatPct / 100; derived = true; }
+  const bodyFatPct = metricValue(latest, 'bodyFatPct');
+  if (fat == null && bodyFatPct != null) { fat = weight * bodyFatPct / 100; derived = true; }
   if (fat == null) return null;
-  const lean = Math.max(0, latest.weight - fat);
-  return { weight: latest.weight, fat, lean, derived, pct: latest.bodyFatPct };
+  const lean = Math.max(0, weight - fat);
+  return { weight, fat, lean, derived, pct: bodyFatPct };
 }
 
 function renderComposition() {
@@ -352,14 +386,23 @@ function renderGauges() {
   const root = $('#gauges'); root.innerHTML = '';
   for (const p of PEOPLE) {
     const person = data.people[p];
-    const list = entriesFor(p);
-    const now = list.slice(-1)[0] && list.slice(-1)[0].bodyFatPct;
+    const list = entriesWith(p, 'bodyFatPct');
+    const latestBf = list[list.length - 1];
+    const now = metricValue(latestBf, 'bodyFatPct');
     const accent = person.accent;
     const g = el('div', { class: 'gauge', style: `--accent:${accent}` });
 
-    if (now == null) { root.append(g); continue; }
+    if (now == null) {
+      g.append(el('div', { class: 'g-top' },
+        el('b', { text: person.name }),
+        el('span', { class: 'g-now', text: 'no body-fat data' }),
+      ));
+      g.append(el('div', { class: 'g-empty' }, el('a', { 'data-goal': p, text: person.goalBf == null ? '+ set a goal' : 'edit goal' })));
+      root.append(g);
+      continue;
+    }
 
-    if (!person.goalBf) {
+    if (person.goalBf == null) {
       g.append(el('div', { class: 'g-top' },
         el('b', { text: person.name }),
         el('span', { class: 'g-now', text: `${fmt(now)}% now` }),
@@ -369,7 +412,7 @@ function renderGauges() {
       continue;
     }
 
-    const start = list[0].bodyFatPct ?? now;
+    const start = metricValue(list[0], 'bodyFatPct') ?? now;
     const goal = person.goalBf;
     // Scale: from start (or now if higher) down to a hair past the goal.
     const top = Math.max(start, now);
@@ -427,13 +470,15 @@ function renderHistory() {
       el('td', { text: fmt(e.bmi) }),
       el('td', { text: e.source }),
     );
-    const del = el('button', { class: 'del', title: 'delete', text: '✕' });
+    const edit = el('button', { class: 'edit', type: 'button', title: 'edit entry', text: 'Edit' });
+    edit.addEventListener('click', () => startEdit(e.id));
+    const del = el('button', { class: 'del', type: 'button', title: 'delete', text: '✕' });
     del.addEventListener('click', async () => {
       if (!confirm(`Delete ${data.people[e.person].name}'s ${e.date} entry?`)) return;
       data.entries = data.entries.filter((x) => x.id !== e.id);
       await mutate({ action: 'deleteEntry', id: e.id });
     });
-    tr.append(el('td', {}, del));
+    tr.append(el('td', {}, el('div', { class: 'row-actions' }, edit, del)));
     tb.append(tr);
   }
 }
@@ -441,56 +486,127 @@ function renderHistory() {
 function renderAll() { renderCards(); renderChips(); renderChart(); renderComposition(); renderGauges(); renderPending(); renderHistory(); }
 
 /* ---------- Form + upload ---------- */
+let editingId = null;
+
 function todayISO() {
   const d = new Date(); const z = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`;
+}
+
+function control(form, name) { return form.elements.namedItem(name); }
+
+function setFormOpen(show) {
+  const form = $('#entryForm');
+  const toggle = $('#toggleForm');
+  const submit = form.querySelector('button[type="submit"]');
+  form.hidden = !show;
+  toggle.setAttribute('aria-expanded', String(show));
+  toggle.textContent = show ? '− Close' : '+ Add';
+  if (show && !control(form, 'date').value) control(form, 'date').value = todayISO();
+  if (!show) {
+    editingId = null;
+    submit.textContent = 'Save entry';
+    form.reset();
+  }
+}
+
+function fillForm(entry) {
+  const form = $('#entryForm');
+  const submit = form.querySelector('button[type="submit"]');
+  setFormOpen(true);
+  editingId = entry.id;
+  submit.textContent = 'Update entry';
+  for (const name of ['person', 'date', 'source', 'note', 'bodyFatPct', 'weight', 'skeletalMuscle', 'bodyFatMass', 'bmi']) {
+    control(form, name).value = entry[name] == null ? '' : String(entry[name]);
+  }
+  form.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' });
+}
+
+function startEdit(id) {
+  const entry = data.entries.find((e) => e.id === id);
+  if (!entry) { toast('Entry not found'); return; }
+  fillForm(entry);
+}
+
+function readEntryFromForm(form) {
+  const fd = new FormData(form);
+  const entry = {
+    person: fd.get('person'),
+    date: fd.get('date'),
+    source: String(fd.get('source') || '').trim() || 'Manual',
+    note: String(fd.get('note') || '').trim(),
+  };
+
+  let any = false;
+  for (const k of Object.keys(FIELD_RULES)) {
+    const raw = String(fd.get(k) || '').trim();
+    if (raw === '') {
+      entry[k] = null;
+      continue;
+    }
+    const n = Number(raw);
+    const rule = FIELD_RULES[k];
+    if (!Number.isFinite(n) || n < rule.min || n > rule.max) {
+      toast(`${rule.label} looks invalid`);
+      return null;
+    }
+    entry[k] = n;
+    any = true;
+  }
+  if (!any) { toast('Enter at least one number'); return null; }
+  return entry;
 }
 
 function wireForm() {
   const form = $('#entryForm');
   const toggle = $('#toggleForm');
   toggle.addEventListener('click', () => {
-    const show = form.hidden;
-    form.hidden = !show;
-    toggle.setAttribute('aria-expanded', String(show));
-    toggle.textContent = show ? '− Close' : '+ Add';
-    if (show && !form.date.value) form.date.value = todayISO();
+    setFormOpen(form.hidden);
   });
 
   form.addEventListener('submit', async (ev) => {
     ev.preventDefault();
-    const fd = new FormData(form);
-    const entry = {
-      person: fd.get('person'),
-      date: fd.get('date'),
-      source: fd.get('source') || 'Manual',
-      note: fd.get('note') || '',
-    };
-    let any = false;
-    for (const k of ['bodyFatPct', 'weight', 'skeletalMuscle', 'bodyFatMass', 'bmi']) {
-      const v = fd.get(k);
-      entry[k] = v === '' || v == null ? null : Number(v);
-      if (entry[k] != null) any = true;
+    const entry = readEntryFromForm(form);
+    if (!entry) return;
+
+    const wasEditing = editingId != null;
+    if (wasEditing) {
+      entry.id = editingId;
+      const i = data.entries.findIndex((e) => e.id === editingId);
+      if (i === -1) { toast('Entry not found'); return; }
+      data.entries[i] = entry;
+    } else {
+      entry.id = `e-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      data.entries.push(entry);
     }
-    if (!any) { toast('Enter at least one number'); return; }
-    entry.id = `e-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    data.entries.push(entry);
-    data.entries.sort((a, b) => (a.date < b.date ? -1 : 1));
-    const ok = await mutate({ action: 'addEntry', entry });
-    toast(ok ? 'Saved ✓' : 'Saved locally');
+    data.entries.sort(compareEntries);
+    const ok = await mutate({ action: wasEditing ? 'updateEntry' : 'addEntry', entry });
+    if (!ok) return;
+    toast(wasEditing ? 'Updated ✓' : 'Saved ✓');
     form.reset();
+    control(form, 'date').value = todayISO();
+    editingId = null;
+    form.querySelector('button[type="submit"]').textContent = 'Save entry';
   });
 
   $('#shotInput').addEventListener('change', async (ev) => {
     const file = ev.target.files && ev.target.files[0];
     if (!file) return;
-    const person = $('#entryForm').person.value;
+    if (file.size > 12 * 1024 * 1024) {
+      toast('Image is too large');
+      ev.target.value = '';
+      return;
+    }
+    const person = control(form, 'person').value;
     const ext = (file.name.split('.').pop() || 'png').toLowerCase();
     toast('Uploading screenshot…');
     try {
+      // Send as octet-stream: with an image/* content type the serverless runtime
+      // drops the body, so the upload would arrive empty. The real image type is
+      // recorded server-side from the `ext` query param.
       const r = await fetch(`/api/upload?person=${person}&ext=${encodeURIComponent(ext)}`, {
         method: 'POST',
-        headers: { 'Content-Type': file.type || 'application/octet-stream' },
+        headers: { 'Content-Type': 'application/octet-stream' },
         body: file,
       });
       const j = await r.json();
