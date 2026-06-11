@@ -5,7 +5,7 @@
 // POST /api/upload?person=daniel&ext=png   (body = raw image bytes)
 //   -> { ok: true, upload: { id, person, blobPath, uploadedAt } }
 import { put } from '@vercel/blob';
-import { loadData, writeData } from './dataset.js';
+import { errorStatus, loadData, writeData } from './dataset.js';
 
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const OK_EXT = new Set(['png', 'jpg', 'jpeg', 'webp', 'heic', 'heif']);
@@ -79,7 +79,6 @@ export default async function handler(req, res) {
 
     return res.status(200).json({ ok: true, upload });
   } catch (e) {
-    const code = (e && e.code) || 500;
-    return res.status(code).json({ error: String((e && e.message) || e) });
+    return res.status(errorStatus(e)).json({ error: String((e && e.message) || e) });
   }
 }

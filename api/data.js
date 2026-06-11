@@ -9,6 +9,7 @@
 import {
   cleanEntry,
   cleanGoal,
+  errorStatus,
   loadData,
   readJsonBody,
   sortEntries,
@@ -82,7 +83,6 @@ export default async function handler(req, res) {
     res.setHeader('Allow', 'GET, POST');
     return res.status(405).json({ error: 'method not allowed' });
   } catch (e) {
-    const code = (e && e.code) || 500;
-    return res.status(code).json({ error: String((e && e.message) || e) });
+    return res.status(errorStatus(e)).json({ error: String((e && e.message) || e) });
   }
 }

@@ -232,7 +232,7 @@ function renderChips() {
 function renderChart() {
   const root = $('#chart'); root.innerHTML = '';
   const m = METRICS.find((x) => x.key === metric);
-  const W = 640, H = 260, padL = 38, padR = 14, padT = 14, padB = 26;
+  const W = 640, H = 260, padL = 46, padR = 14, padT = 14, padB = 26;
 
   const series = PEOPLE.map((p) => ({
     p, accent: data.people[p].accent, goal: m.goal ? data.people[p].goalBf : null,
@@ -267,11 +267,12 @@ function renderChart() {
     svg.append(svgEl('line', { class: 'grid', x1: padL, y1: yy, x2: W - padR, y2: yy }));
     svg.append(svgEl('text', { class: 'tick', x: padL - 6, y: yy + 3, 'text-anchor': 'end', text: fmt(v, maxV - minV < 5 ? 1 : 0) }));
   }
-  // x labels (first + last date)
+  // x labels (first + last date). Dates parse as UTC midnight, so read them back
+  // in UTC — local getters would show the previous day west of Greenwich.
   for (const t of [minT, maxT]) {
     const dt = new Date(t);
     svg.append(svgEl('text', { class: 'tick', x: x(t), y: H - 8, 'text-anchor': t === minT ? 'start' : 'end',
-      text: `${dt.getMonth() + 1}/${dt.getDate()}` }));
+      text: `${dt.getUTCMonth() + 1}/${dt.getUTCDate()}` }));
   }
 
   // goal lines
@@ -458,7 +459,7 @@ function renderPending() {
 /* ---------- History ---------- */
 function renderHistory() {
   const tb = $('#history tbody'); tb.innerHTML = '';
-  const rows = [...data.entries].sort((a, b) => (a.date < b.date ? 1 : -1));
+  const rows = [...data.entries].sort((a, b) => compareEntries(b, a)); // newest first, stable ties
   for (const e of rows) {
     const tr = el('tr', {},
       el('td', { text: e.date }),

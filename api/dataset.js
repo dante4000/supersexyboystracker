@@ -71,6 +71,12 @@ export function httpError(message, code = 400) {
   return err;
 }
 
+// Node system errors carry string codes ('ECONNRESET'); only trust numeric HTTP ones.
+export function errorStatus(e) {
+  const code = e && e.code;
+  return Number.isInteger(code) && code >= 400 && code <= 599 ? code : 500;
+}
+
 function parseJsonText(text) {
   if (!text) return {};
   try { return JSON.parse(text); } catch { return {}; }
