@@ -591,34 +591,44 @@ function wireForm() {
   });
 
   $('#shotInput').addEventListener('change', async (ev) => {
-    const file = ev.target.files && ev.target.files[0];
-    if (!file) return;
-    if (file.size > 12 * 1024 * 1024) {
-      toast('Image is too large');
-      ev.target.value = '';
-      return;
-    }
+    const files = Array.from(ev.target.files || []);
+    if (!files.length) return;
     const person = control(form, 'person').value;
-    const ext = (file.name.split('.').pop() || 'png').toLowerCase();
-    toast('Uploading screenshot…');
-    try {
-      // Send as octet-stream: with an image/* content type the serverless runtime
-      // drops the body, so the upload would arrive empty. The real image type is
-      // recorded server-side from the `ext` query param.
-      const r = await fetch(`/api/upload?person=${person}&ext=${encodeURIComponent(ext)}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/octet-stream' },
-        body: file,
-      });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error || 'upload failed');
-      toast('Screenshot saved — I\'ll read it later 📸');
-      await load();
-    } catch (e) {
-      toast('Upload failed: ' + e.message);
-    } finally {
-      ev.target.value = '';
+    let saved = 0;
+    const failed = [];
+    // Upload one at a time: each upload read-modify-writes the shared dataset
+    // blob server-side, so parallel POSTs would drop each other's entries.
+    for (const [i, file] of files.entries()) {
+      const label = files.length > 1 ? ` ${i + 1}/${files.length}` : '';
+      if (file.size > 12 * 1024 * 1024) {
+        failed.push(`${file.name} is too large`);
+        continue;
+      }
+      const ext = (file.name.split('.').pop() || 'png').toLowerCase();
+      toast(`Uploading screenshot${label}…`);
+      try {
+        // Send as octet-stream: with an image/* content type the serverless runtime
+        // drops the body, so the upload would arrive empty. The real image type is
+        // recorded server-side from the `ext` query param.
+        const r = await fetch(`/api/upload?person=${person}&ext=${encodeURIComponent(ext)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/octet-stream' },
+          body: file,
+        });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || 'upload failed');
+        saved++;
+      } catch (e) {
+        failed.push(`${file.name}: ${e.message}`);
+      }
     }
+    ev.target.value = '';
+    if (failed.length) {
+      toast(`${saved ? `Saved ${saved}, ` : ''}failed ${failed.length}: ${failed[0]}`);
+    } else {
+      toast(saved > 1 ? `${saved} screenshots saved — I'll read them later 📸` : 'Screenshot saved — I\'ll read it later 📸');
+    }
+    if (saved) await load();
   });
 }
 
