@@ -3,6 +3,13 @@
   "installCommand": "npm install --omit=dev",
   "cleanUrls": true,
   "trailingSlash": false,
+  "crons": [
+    { "path": "/api/process-uploads", "schedule": "0 12 * * *" }
+  ],
+  "functions": {
+    "api/process-uploads.js": { "maxDuration": 60 },
+    "api/upload.js": { "maxDuration": 60 }
+  },
   "headers": [
     {
       "source": "/styles.css",

@@ -167,6 +167,9 @@ function cleanPendingUpload(raw) {
     bytes: Number.isFinite(Number(raw.bytes)) ? Number(raw.bytes) : null,
     url: raw.url ? String(raw.url) : undefined,
     contentType: raw.contentType ? String(raw.contentType).slice(0, 80) : undefined,
+    // Auto-transcription bookkeeping (see api/process-uploads.js).
+    transcribeAttempts: Number.isInteger(raw.transcribeAttempts) ? raw.transcribeAttempts : undefined,
+    transcribeError: raw.transcribeError ? String(raw.transcribeError).slice(0, 200) : undefined,
   };
 }
 

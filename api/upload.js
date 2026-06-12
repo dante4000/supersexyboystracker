@@ -5,7 +5,9 @@
 // POST /api/upload?person=daniel&ext=png   (body = raw image bytes)
 //   -> { ok: true, upload: { id, person, blobPath, uploadedAt } }
 import { put } from '@vercel/blob';
+import { waitUntil } from '@vercel/functions';
 import { errorStatus, loadData, writeData } from './dataset.js';
+import { processPendingUploads } from './process-uploads.js';
 
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const OK_EXT = new Set(['png', 'jpg', 'jpeg', 'webp', 'heic', 'heif']);
@@ -76,6 +78,12 @@ export default async function handler(req, res) {
     data.pendingUploads = data.pendingUploads || [];
     data.pendingUploads.push(upload);
     await writeData(data);
+
+    // Kick off Claude transcription in the background so the numbers usually land
+    // within seconds; the cron in vercel.json is the safety net if this run dies.
+    if (process.env.ANTHROPIC_API_KEY) {
+      waitUntil(processPendingUploads().catch(() => {}));
+    }
 
     return res.status(200).json({ ok: true, upload });
   } catch (e) {

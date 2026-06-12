@@ -8,9 +8,12 @@
     "node": "22.x"
   },
   "scripts": {
-    "pull-uploads": "node tools/pull-uploads.mjs"
+    "pull-uploads": "node tools/pull-uploads.mjs",
+    "transcribe-uploads": "node tools/transcribe-uploads.mjs"
   },
   "dependencies": {
-    "@vercel/blob": "^2.0.0"
+    "@anthropic-ai/sdk": "^0.104.1",
+    "@vercel/blob": "^2.0.0",
+    "@vercel/functions": "^3.7.1"
   }
 }
