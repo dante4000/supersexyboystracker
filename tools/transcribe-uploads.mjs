@@ -16,7 +16,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { cleanEntry, loadData, sortEntries, writeData } from '../api/dataset.js';
+import { addOrMergeAutoEntry, cleanEntry, loadData, sortEntries, writeData } from '../api/dataset.js';
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const MAX_ATTEMPTS = 3;
@@ -85,11 +85,12 @@ function buildEntry(upload, x) {
   const date = /^\d{4}-\d{2}-\d{2}$/.test(x.date || '') ? x.date : String(upload.uploadedAt || '').slice(0, 10);
   const noteParts = ['Auto-transcribed by Claude from screenshot'];
   if (x.note) noteParts.push(x.note);
+  const source = /inbody/i.test(x.source || '') ? 'InBody' : /scale/i.test(x.source || '') ? 'Scale' : x.source || 'Screenshot';
   return cleanEntry({
     id: `e-upload-${upload.id}`, // deterministic — re-runs can't double-add
     person: upload.person,
     date,
-    source: x.source || 'Screenshot',
+    source,
     weight: x.weight,
     bodyFatPct: x.bodyFatPct,
     skeletalMuscle: x.skeletalMuscle,
@@ -149,10 +150,11 @@ async function main() {
       }
 
       if (entry) {
-        data.entries.push(entry);
+        const saved = addOrMergeAutoEntry(data, entry);
         resolved.add(upload.id);
         changed = true;
-        console.log(`+ ${tag}: added ${entry.date} bf ${entry.bodyFatPct ?? '—'}% wt ${entry.weight ?? '—'}`);
+        const verb = saved.id === entry.id ? 'added' : `merged into ${saved.id}`;
+        console.log(`+ ${tag}: ${verb} ${saved.date} bf ${saved.bodyFatPct ?? '—'}% wt ${saved.weight ?? '—'}`);
       } else {
         upload.transcribeAttempts = (upload.transcribeAttempts || 0) + 1;
         upload.transcribeError = error;

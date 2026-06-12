@@ -237,6 +237,29 @@ export function cleanEntry(raw) {
   return hasMeasurement ? out : null;
 }
 
+// One scan often arrives as several screenshots (different InBody screens), each yielding
+// a partial entry. Fold an auto-transcribed entry into an existing same-person/same-date
+// auto entry when no field conflicts; otherwise append it. Returns the surviving entry.
+export function addOrMergeAutoEntry(data, entry) {
+  const target = data.entries.find(
+    (e) =>
+      String(e.id).startsWith('e-upload-') &&
+      e.person === entry.person &&
+      e.date === entry.date &&
+      FIELDS.every((f) => e[f] == null || entry[f] == null || e[f] === entry[f]),
+  );
+  if (!target) {
+    data.entries.push(entry);
+    return entry;
+  }
+  for (const f of FIELDS) {
+    if (target[f] == null) target[f] = entry[f];
+  }
+  if (target.source === 'Screenshot' && entry.source !== 'Screenshot') target.source = entry.source;
+  target.note = 'Auto-transcribed by Claude from screenshots';
+  return target;
+}
+
 export function cleanGoal(value) {
   if (value == null || (typeof value === 'string' && value.trim() === '')) return { ok: true, value: null };
   const n = Number(value);

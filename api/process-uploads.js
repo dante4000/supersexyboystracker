@@ -14,7 +14,7 @@
 // MAX_ATTEMPTS automatic tries it is left alone for good.
 import Anthropic from '@anthropic-ai/sdk';
 import { get } from '@vercel/blob';
-import { cleanEntry, errorStatus, loadData, sortEntries, writeData } from './dataset.js';
+import { addOrMergeAutoEntry, cleanEntry, errorStatus, loadData, sortEntries, writeData } from './dataset.js';
 
 const MODEL = process.env.CLAUDE_MODEL || 'claude-opus-4-8';
 const MAX_ATTEMPTS = 3;
@@ -142,12 +142,17 @@ function buildEntry(upload, extraction) {
   const noteParts = ['Auto-transcribed by Claude from screenshot'];
   if (extraction.note) noteParts.push(extraction.note);
 
+  const source = /inbody/i.test(extraction.source || '')
+    ? 'InBody'
+    : /scale/i.test(extraction.source || '')
+      ? 'Scale'
+      : extraction.source || 'Screenshot';
   // Deterministic id keyed to the upload so a cron/upload-trigger race can't double-add.
   return cleanEntry({
     id: `e-upload-${upload.id}`,
     person: upload.person,
     date,
-    source: extraction.source || 'Screenshot',
+    source,
     weight: extraction.weight,
     bodyFatPct: extraction.bodyFatPct,
     skeletalMuscle: extraction.skeletalMuscle,
@@ -192,10 +197,10 @@ export async function processPendingUploads() {
     if (outcome.ok) {
       const entry = buildEntry(upload, outcome.extraction);
       if (entry) {
-        data.entries.push(entry);
+        const saved = addOrMergeAutoEntry(data, entry);
         resolved.add(upload.id);
         changed = true;
-        results.push({ id: upload.id, status: 'added', entry });
+        results.push({ id: upload.id, status: saved.id === entry.id ? 'added' : 'merged', entry: saved });
         continue;
       }
       outcome = { ok: false, permanent: true, error: 'extracted values failed validation (out of range?)' };
