@@ -247,7 +247,7 @@ function renderChips() {
 function renderChart() {
   const root = $('#chart'); root.innerHTML = '';
   const m = METRICS.find((x) => x.key === metric);
-  const W = 640, H = 260, padL = 46, padR = 14, padT = 14, padB = 26;
+  const W = 660, H = 280, padL = 44, padR = 16, padT = 16, padB = 34;
 
   const series = PEOPLE.map((p) => ({
     p, accent: data.people[p].accent, goal: m.goal ? data.people[p].goalBf : null,
@@ -259,7 +259,11 @@ function renderChart() {
   const allV = series.flatMap((s) => s.pts.map((d) => d.v)).concat(series.map((s) => s.goal).filter((v) => v != null));
   const allT = series.flatMap((s) => s.pts.map((d) => d.t));
 
-  const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'none', role: 'img', 'aria-label': `${m.label} over time` });
+  const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'xMidYMid meet', role: 'img', 'aria-label': `${m.label} over time` });
+
+  // Frosted plate behind the plot so data reads clearly over the photo background.
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  svg.append(svgEl('rect', { class: 'plot-bg', x: padL, y: padT, width: plotW, height: plotH, rx: 12 }));
 
   if (!allV.length) {
     svg.append(svgEl('text', { x: W / 2, y: H / 2, 'text-anchor': 'middle', class: 'empty', text: 'No data for this metric yet' }));
@@ -268,26 +272,41 @@ function renderChart() {
 
   let minV = Math.min(...allV), maxV = Math.max(...allV);
   if (minV === maxV) { minV -= 1; maxV += 1; }
-  const padV = (maxV - minV) * 0.15; minV -= padV; maxV += padV;
+  const padVal = (maxV - minV) * 0.15; minV -= padVal; maxV += padVal;
   let minT = Math.min(...allT), maxT = Math.max(...allT);
   if (minT === maxT) { minT -= 86400000; maxT += 86400000; }
 
-  const x = (t) => padL + ((t - minT) / (maxT - minT)) * (W - padL - padR);
-  const y = (v) => padT + (1 - (v - minV) / (maxV - minV)) * (H - padT - padB);
+  const x = (t) => padL + ((t - minT) / (maxT - minT)) * plotW;
+  const y = (v) => padT + (1 - (v - minV) / (maxV - minV)) * plotH;
+  const decimals = maxV - minV < 5 ? 1 : 0;
 
   // y grid + labels
   for (let i = 0; i <= 4; i++) {
     const v = minV + (i / 4) * (maxV - minV);
     const yy = y(v);
     svg.append(svgEl('line', { class: 'grid', x1: padL, y1: yy, x2: W - padR, y2: yy }));
-    svg.append(svgEl('text', { class: 'tick', x: padL - 6, y: yy + 3, 'text-anchor': 'end', text: fmt(v, maxV - minV < 5 ? 1 : 0) }));
+    svg.append(svgEl('text', { class: 'tick', x: padL - 8, y: yy + 4, 'text-anchor': 'end', text: fmt(v, decimals) }));
   }
-  // x labels (first + last date). Dates parse as UTC midnight, so read them back
-  // in UTC — local getters would show the previous day west of Greenwich.
-  for (const t of [minT, maxT]) {
+
+  // x grid + date labels. Label every distinct measurement date, but skip any that
+  // would crowd the previous label or the right edge so they stay legible.
+  // Dates parse as UTC midnight, so read them back in UTC — local getters would
+  // show the previous day west of Greenwich.
+  const dates = [...new Set(allT)].sort((a, b) => a - b);
+  const minGap = 48;
+  let lastLabelX = -Infinity;
+  for (const t of dates) {
+    const xx = x(t);
+    const isEnd = t === minT || t === maxT;
+    const clearsPrev = xx - lastLabelX >= minGap;
+    const clearsEnd = isEnd || x(maxT) - xx >= minGap;
+    if (!isEnd && !(clearsPrev && clearsEnd)) continue;
+    svg.append(svgEl('line', { class: 'grid vgrid', x1: xx, y1: padT, x2: xx, y2: padT + plotH }));
     const dt = new Date(t);
-    svg.append(svgEl('text', { class: 'tick', x: x(t), y: H - 8, 'text-anchor': t === minT ? 'start' : 'end',
+    const anchor = t === minT ? 'start' : t === maxT ? 'end' : 'middle';
+    svg.append(svgEl('text', { class: 'tick', x: xx, y: H - 12, 'text-anchor': anchor,
       text: `${dt.getUTCMonth() + 1}/${dt.getUTCDate()}` }));
+    lastLabelX = xx;
   }
 
   // goal lines
@@ -309,10 +328,19 @@ function renderChart() {
         cx: x(pt.t), cy: y(pt.v), fill: s.accent,
         'data-name': data.people[s.p].name, 'data-date': pt.d, 'data-val': `${fmt(pt.v)}${m.unit}`,
       };
-      svg.append(svgEl('circle', { ...attrs, class: 'pt', r: 4 }));
+      svg.append(svgEl('circle', { ...attrs, class: 'pt', r: 4.5 }));
       // Oversized transparent target so points are tappable on touch screens.
       if (coarsePointer) svg.append(svgEl('circle', { ...attrs, class: 'hit', r: 18 }));
     }
+    // Label the latest value so the current number is readable without hovering.
+    const last = s.pts[s.pts.length - 1];
+    const lx = x(last.t), ly = y(last.v);
+    const nearRight = lx > W - padR - 38;
+    svg.append(svgEl('text', {
+      class: 'val-label', x: nearRight ? lx - 8 : lx + 8, y: ly - 8,
+      'text-anchor': nearRight ? 'end' : 'start', fill: s.accent,
+      text: fmt(last.v, decimals) + m.unit,
+    }));
   }
 
   root.append(svg);

@@ -9,7 +9,8 @@
   },
   "scripts": {
     "pull-uploads": "node tools/pull-uploads.mjs",
-    "transcribe-uploads": "node tools/transcribe-uploads.mjs"
+    "transcribe-uploads": "node tools/transcribe-uploads.mjs",
+    "preview": "node tools/preview.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.1",
