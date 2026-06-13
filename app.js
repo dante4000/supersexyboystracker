@@ -36,6 +36,7 @@ let metric = 'bodyFatPct';
 const counted = new Set();
 const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const finePointer = window.matchMedia && window.matchMedia('(pointer: fine)').matches;
+const coarsePointer = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
 
 const $ = (s, r = document) => r.querySelector(s);
 const el = (tag, attrs = {}, ...kids) => {
@@ -76,9 +77,12 @@ function latestValue(p, key) {
   return metricValue(entry, key);
 }
 
-function toast(msg) {
+// kind: 'ok' | 'bad' | undefined (neutral glass). Drives the toast color variant.
+function toast(msg, kind) {
   const t = $('#toast');
-  t.textContent = msg; t.hidden = false;
+  t.textContent = msg;
+  t.className = kind ? `toast ${kind}` : 'toast';
+  t.hidden = false;
   clearTimeout(toast._t);
   toast._t = setTimeout(() => { t.hidden = true; }, 2600);
 }
@@ -95,7 +99,7 @@ async function load() {
   try {
     data = await api('GET');
   } catch {
-    toast('Couldn’t reach the server');
+    toast('Couldn’t reach the server', 'bad');
   }
   renderAll();
 }
@@ -109,7 +113,7 @@ async function mutate(payload) {
     renderAll();
     return true;
   } catch {
-    toast('Save failed — check your connection');
+    toast('Save failed — check your connection', 'bad');
     await load();
     return false;
   }
@@ -165,15 +169,15 @@ function renderCards() {
       gb.append(el('div', { class: 'track' }, el('div', { class: 'fill', style: `width:${(prog * 100).toFixed(0)}%` })));
       gb.append(el('div', { class: 'glabel' },
         el('span', { text: `goal ${goal}%` }),
-        el('a', { 'data-goal': p, text: bfVal <= goal ? '🎯 hit!' : `${(bfVal - goal).toFixed(1)}% to go` }),
+        goalLink(p, bfVal <= goal ? '🎯 hit!' : `${(bfVal - goal).toFixed(1)}% to go`),
       ));
     } else if (person.goalBf != null) {
-      gb.append(el('div', { class: 'glabel' }, el('span', { text: `goal ${person.goalBf}%` }), el('a', { 'data-goal': p, text: 'edit goal' })));
+      gb.append(el('div', { class: 'glabel' }, el('span', { text: `goal ${person.goalBf}%` }), goalLink(p, 'edit goal')));
     } else {
-      gb.append(el('div', { class: 'glabel' }, el('span', { text: 'no goal set' }), el('a', { 'data-goal': p, text: '+ set goal' })));
+      gb.append(el('div', { class: 'glabel' }, el('span', { text: 'no goal set' }), goalLink(p, '+ set goal')));
     }
     card.append(gb);
-    if (finePointer && !reduceMotion) tiltOnHover(card);
+    if (finePointer && !reduceMotion) glareOnHover(card);
     root.append(card);
   }
   root.querySelectorAll('[data-goal]').forEach((a) => a.addEventListener('click', () => setGoal(a.dataset.goal)));
@@ -194,15 +198,26 @@ function countUp(node, target, key) {
   requestAnimationFrame(step);
 }
 
-// Subtle glassy 3D tilt toward the cursor.
-function tiltOnHover(card) {
+// Move a soft specular glare toward the cursor by feeding --mx/--my to the glass
+// background gradient. Deliberately NOT a transform: transforming a backdrop-filter
+// element drops it onto its own layer and the blur stops sampling the page behind it.
+function glareOnHover(card) {
   card.addEventListener('mousemove', (e) => {
     const r = card.getBoundingClientRect();
-    const px = (e.clientX - r.left) / r.width - 0.5;
-    const py = (e.clientY - r.top) / r.height - 0.5;
-    card.style.transform = `perspective(800px) rotateX(${py * -4}deg) rotateY(${px * 6}deg) translateY(-3px)`;
+    card.style.setProperty('--mx', `${(((e.clientX - r.left) / r.width) * 100).toFixed(1)}%`);
+    card.style.setProperty('--my', `${(((e.clientY - r.top) / r.height) * 100).toFixed(1)}%`);
   });
-  card.addEventListener('mouseleave', () => { card.style.transform = ''; });
+  card.addEventListener('mouseleave', () => {
+    card.style.removeProperty('--mx');
+    card.style.removeProperty('--my');
+  });
+}
+
+// Keyboard-focusable, link-styled button that opens the goal prompt for person p.
+// (Was an <a> with no href — not reachable by keyboard.) The existing
+// [data-goal] click wiring picks it up unchanged.
+function goalLink(p, text, style) {
+  return el('button', { type: 'button', class: 'linkbtn', 'data-goal': p, style, text });
 }
 
 async function setGoal(p) {
@@ -290,10 +305,13 @@ function renderChart() {
       svg.append(svgEl('path', { class: 'series', d, stroke: s.accent }));
     }
     for (const pt of s.pts) {
-      svg.append(svgEl('circle', {
-        class: 'pt', cx: x(pt.t), cy: y(pt.v), r: 4, fill: s.accent,
+      const attrs = {
+        cx: x(pt.t), cy: y(pt.v), fill: s.accent,
         'data-name': data.people[s.p].name, 'data-date': pt.d, 'data-val': `${fmt(pt.v)}${m.unit}`,
-      }));
+      };
+      svg.append(svgEl('circle', { ...attrs, class: 'pt', r: 4 }));
+      // Oversized transparent target so points are tappable on touch screens.
+      if (coarsePointer) svg.append(svgEl('circle', { ...attrs, class: 'hit', r: 18 }));
     }
   }
 
@@ -305,7 +323,7 @@ function renderChart() {
 let tipEl = null;
 function wireTips(svg) {
   if (!tipEl) { tipEl = el('div', { class: 'tip' }); tipEl.hidden = true; document.body.append(tipEl); }
-  svg.querySelectorAll('.pt').forEach((c) => {
+  svg.querySelectorAll('.pt, .hit').forEach((c) => {
     c.addEventListener('mouseenter', () => { tipEl.hidden = false; });
     c.addEventListener('mousemove', (e) => {
       tipEl.innerHTML = `${c.getAttribute('data-val')}<small>${c.getAttribute('data-name')} · ${c.getAttribute('data-date')}</small>`;
@@ -398,7 +416,7 @@ function renderGauges() {
         el('b', { text: person.name }),
         el('span', { class: 'g-now', text: 'no body-fat data' }),
       ));
-      g.append(el('div', { class: 'g-empty' }, el('a', { 'data-goal': p, text: person.goalBf == null ? '+ set a goal' : 'edit goal' })));
+      g.append(el('div', { class: 'g-empty' }, goalLink(p, person.goalBf == null ? '+ set a goal' : 'edit goal')));
       root.append(g);
       continue;
     }
@@ -408,7 +426,7 @@ function renderGauges() {
         el('b', { text: person.name }),
         el('span', { class: 'g-now', text: `${fmt(now)}% now` }),
       ));
-      g.append(el('div', { class: 'g-empty' }, el('a', { 'data-goal': p, text: '+ set a goal to track progress' })));
+      g.append(el('div', { class: 'g-empty' }, goalLink(p, '+ set a goal to track progress')));
       root.append(g);
       continue;
     }
@@ -434,7 +452,7 @@ function renderGauges() {
     g.append(track);
     g.append(el('div', { class: 'g-scale' },
       el('span', { text: `${fmt(top)}%` }),
-      el('a', { 'data-goal': p, style: 'color:var(--ink-faint);cursor:pointer', text: 'edit goal' }),
+      goalLink(p, 'edit goal', 'color:var(--ink-faint)'),
     ));
     root.append(g);
   }
@@ -460,6 +478,10 @@ function renderPending() {
 function renderHistory() {
   const tb = $('#history tbody'); tb.innerHTML = '';
   const rows = [...data.entries].sort((a, b) => compareEntries(b, a)); // newest first, stable ties
+  if (!rows.length) {
+    tb.append(el('tr', {}, el('td', { colspan: '9', class: 'empty-row', text: 'No entries yet — log one above ↑' })));
+    return;
+  }
   for (const e of rows) {
     const tr = el('tr', {},
       el('td', { text: e.date }),
@@ -583,7 +605,7 @@ function wireForm() {
     data.entries.sort(compareEntries);
     const ok = await mutate({ action: wasEditing ? 'updateEntry' : 'addEntry', entry });
     if (!ok) return;
-    toast(wasEditing ? 'Updated ✓' : 'Saved ✓');
+    toast(wasEditing ? 'Updated ✓' : 'Saved ✓', 'ok');
     form.reset();
     control(form, 'date').value = todayISO();
     editingId = null;
@@ -624,9 +646,9 @@ function wireForm() {
     }
     ev.target.value = '';
     if (failed.length) {
-      toast(`${saved ? `Saved ${saved}, ` : ''}failed ${failed.length}: ${failed[0]}`);
+      toast(`${saved ? `Saved ${saved}, ` : ''}failed ${failed.length}: ${failed[0]}`, 'bad');
     } else {
-      toast(saved > 1 ? `${saved} screenshots saved — I'll read them later 📸` : 'Screenshot saved — I\'ll read it later 📸');
+      toast(saved > 1 ? `${saved} screenshots saved — I'll read them later 📸` : 'Screenshot saved — I\'ll read it later 📸', 'ok');
     }
     if (saved) await load();
   });

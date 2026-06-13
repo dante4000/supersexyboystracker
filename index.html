@@ -67,11 +67,11 @@
           <button type="submit" class="primary">Save entry</button>
           <span class="or">or</span>
           <label class="upload-btn">
-            📸 Upload screenshot
-            <input id="shotInput" type="file" accept="image/*" multiple hidden />
+            📸 Upload screenshots
+            <input id="shotInput" type="file" accept="image/*" multiple />
           </label>
         </div>
-        <p class="hint">Upload a scale / InBody screenshot now — I'll read the numbers off it later and add them in.</p>
+        <p class="hint">Upload one or more scale / InBody screenshots now — I'll read the numbers off them later and add them in.</p>
       </form>
     </section>
 
@@ -114,7 +114,7 @@
     <footer class="foot">Data syncs to a private store. Numbers from consumer scales read high vs. InBody — compare each person to their own baseline.</footer>
   </div>
 
-  <div id="toast" class="toast" hidden></div>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   <script src="/app.js" type="module"></script>
 </body>
 </html>
