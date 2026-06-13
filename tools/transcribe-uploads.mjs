@@ -57,13 +57,14 @@ function prompt(imagePath) {
   return `Use the Read tool to look at the image file at ${imagePath}. It is a screenshot of a body-composition reading (InBody scan, smart scale app, or similar) for one person.
 
 Respond with ONLY a raw JSON object — no markdown fences, no commentary — in this exact shape:
-{"readable": boolean, "date": string|null, "source": string|null, "weight": number|null, "bodyFatPct": number|null, "skeletalMuscle": number|null, "bodyFatMass": number|null, "bmi": number|null, "note": string|null}
+{"isReading": boolean, "date": string|null, "time": string|null, "source": string|null, "weight": number|null, "bodyFatPct": number|null, "skeletalMuscle": number|null, "bodyFatMass": number|null, "bmi": number|null, "note": string|null}
 
 Rules:
+- isReading is true if this is a body-composition app or smart-scale screen (InBody, scale app, etc.) — INCLUDING history/trend/chart screens that show no current numbers. false only if the image is something unrelated.
 - weight, skeletalMuscle, and bodyFatMass are in POUNDS. If the reading is metric, convert (1 kg = 2.20462 lb) and mention the conversion in note.
 - Use null for any value not shown or not legible. Never guess a digit you cannot read.
 - date is the measurement date shown IN the image (YYYY-MM-DD), null if absent — not today's date.
-- If the image is not a body-composition reading, or no measurement is legible, set readable to false.`;
+- time is the measurement time-of-day shown next to that date, as HH:MM 24-hour (e.g. "06.12.26 12:30" -> date "2026-06-12", time "12:30"). null if no time is shown.`;
 }
 
 function transcribeWithClaude(imagePath) {
@@ -90,6 +91,7 @@ function buildEntry(upload, x) {
     id: `e-upload-${upload.id}`, // deterministic — re-runs can't double-add
     person: upload.person,
     date,
+    time: x.time,
     source,
     weight: x.weight,
     bodyFatPct: x.bodyFatPct,
@@ -134,16 +136,17 @@ async function main() {
       }
 
       let entry = null;
-      let error = null;
+      let skipReason = null; // successfully read, but nothing for us to store -> clear it
+      let error = null; // transient failure -> retry later
       try {
         const local = await downloadUpload(upload, dir);
         if (!local) throw new Error('blob not found');
         const x = transcribeWithClaude(local);
-        if (!x.readable) {
-          error = x.note || 'image not readable as a body-composition screenshot';
+        if (!x.isReading) {
+          skipReason = 'not a body-composition screenshot';
         } else {
           entry = buildEntry(upload, x);
-          if (!entry) error = 'extracted values failed validation (out of range?)';
+          if (!entry) skipReason = 'reading screen with no tracked metrics (trend/score/BMR view)';
         }
       } catch (e) {
         error = String((e && e.message) || e);
@@ -154,7 +157,13 @@ async function main() {
         resolved.add(upload.id);
         changed = true;
         const verb = saved.id === entry.id ? 'added' : `merged into ${saved.id}`;
-        console.log(`+ ${tag}: ${verb} ${saved.date} bf ${saved.bodyFatPct ?? '—'}% wt ${saved.weight ?? '—'}`);
+        const when = saved.time ? `${saved.date} ${saved.time}` : saved.date;
+        console.log(`+ ${tag}: ${verb} ${when} bf ${saved.bodyFatPct ?? '—'}% wt ${saved.weight ?? '—'}`);
+      } else if (skipReason) {
+        // Read fine, just nothing to log — clear it so it doesn't jam the queue.
+        resolved.add(upload.id);
+        changed = true;
+        console.log(`- ${tag}: skipped (${skipReason})`);
       } else {
         upload.transcribeAttempts = (upload.transcribeAttempts || 0) + 1;
         upload.transcribeError = error;

@@ -34,12 +34,13 @@ const nullable = (type, description) => ({ anyOf: [{ type }, { type: 'null' }], 
 const EXTRACTION_SCHEMA = {
   type: 'object',
   properties: {
-    readable: {
+    isReading: {
       type: 'boolean',
       description:
-        'true only if this is a body-composition reading (InBody scan, smart scale, etc.) with at least one legible measurement',
+        'true if this is a body-composition app or smart-scale screen (InBody, scale app, etc.), INCLUDING history/trend/chart screens with no current numbers; false only if the image is unrelated',
     },
     date: nullable('string', 'Scan/measurement date shown in the image, as YYYY-MM-DD. null if not visible.'),
+    time: nullable('string', 'Measurement time-of-day next to that date, as HH:MM 24-hour (e.g. "06.12.26 12:30" -> "12:30"). null if no time shown.'),
     source: nullable('string', "Device or app name shown, e.g. 'InBody' or 'Scale'. null if unclear."),
     weight: nullable('number', 'Body weight in POUNDS. Convert from kg if needed (1 kg = 2.20462 lb).'),
     bodyFatPct: nullable('number', 'Body fat percentage, e.g. 11.7'),
@@ -48,17 +49,18 @@ const EXTRACTION_SCHEMA = {
     bmi: nullable('number', 'BMI if shown'),
     note: nullable('string', 'Anything worth flagging: unit conversion performed, partially legible values, ambiguity.'),
   },
-  required: ['readable', 'date', 'source', 'weight', 'bodyFatPct', 'skeletalMuscle', 'bodyFatMass', 'bmi', 'note'],
+  required: ['isReading', 'date', 'time', 'source', 'weight', 'bodyFatPct', 'skeletalMuscle', 'bodyFatMass', 'bmi', 'note'],
   additionalProperties: false,
 };
 
-const PROMPT = `This screenshot is a body-composition reading (InBody scan, smart scale app, or similar) for one person.
+const PROMPT = `This screenshot is from a body-composition app or smart scale (InBody, scale app, or similar) for one person.
 
-Extract the measurements into the schema. Rules:
+Extract into the schema. Rules:
+- isReading is true for any such screen, including history/trend/chart screens with no current numbers. false only if the image is unrelated.
 - Report weight, skeletal muscle mass, and body fat mass in POUNDS. If the reading is metric, convert (1 kg = 2.20462 lb) and mention the conversion in note.
 - Use null for any value not shown or not legible. Never guess a digit you cannot read.
 - date is the measurement date shown in the image (YYYY-MM-DD), not today's date. null if absent.
-- If the image is not a body-composition reading at all, or no measurement is legible, set readable to false.`;
+- time is the measurement time-of-day next to that date, as HH:MM 24-hour. null if not shown.`;
 
 function validDateString(s) {
   return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
@@ -129,9 +131,6 @@ async function transcribeUpload(upload) {
   } catch {
     return { ok: false, permanent: false, error: 'unparseable model output' };
   }
-  if (!extraction.readable) {
-    return { ok: false, permanent: true, error: extraction.note || 'image not readable as a body-composition screenshot' };
-  }
   return { ok: true, extraction };
 }
 
@@ -152,6 +151,7 @@ function buildEntry(upload, extraction) {
     id: `e-upload-${upload.id}`,
     person: upload.person,
     date,
+    time: extraction.time,
     source,
     weight: extraction.weight,
     bodyFatPct: extraction.bodyFatPct,
@@ -195,7 +195,7 @@ export async function processPendingUploads() {
     }
 
     if (outcome.ok) {
-      const entry = buildEntry(upload, outcome.extraction);
+      const entry = outcome.extraction.isReading ? buildEntry(upload, outcome.extraction) : null;
       if (entry) {
         const saved = addOrMergeAutoEntry(data, entry);
         resolved.add(upload.id);
@@ -203,7 +203,15 @@ export async function processPendingUploads() {
         results.push({ id: upload.id, status: saved.id === entry.id ? 'added' : 'merged', entry: saved });
         continue;
       }
-      outcome = { ok: false, permanent: true, error: 'extracted values failed validation (out of range?)' };
+      // Read fine but nothing to store (unrelated image, or a trend/score/BMR screen with
+      // no tracked metrics) — clear it so it can't jam the queue.
+      const skipReason = outcome.extraction.isReading
+        ? 'reading screen with no tracked metrics'
+        : 'not a body-composition screenshot';
+      resolved.add(upload.id);
+      changed = true;
+      results.push({ id: upload.id, status: 'skipped', reason: skipReason });
+      continue;
     }
 
     upload.transcribeAttempts = outcome.permanent ? MAX_ATTEMPTS : (upload.transcribeAttempts || 0) + 1;

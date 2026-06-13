@@ -202,6 +202,25 @@ function cleanString(value, fallback, max) {
   return (s || fallback).slice(0, max);
 }
 
+// Measurement time-of-day shown in a screenshot, as "HH:MM" (24h). null if absent/invalid.
+function cleanTime(value) {
+  const m = String(value ?? '').trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (h > 23 || min > 59) return null;
+  return `${String(h).padStart(2, '0')}:${m[2]}`;
+}
+
+// Epoch millis for an entry's measurement instant (date + optional time, UTC). Time
+// defaults to noon when absent so date-only entries still compare sanely.
+export function entryInstant(entry) {
+  if (!entry || !validDate(entry.date)) return null;
+  const time = cleanTime(entry.time) || '12:00';
+  const d = new Date(`${entry.date}T${time}:00.000Z`);
+  return Number.isFinite(d.getTime()) ? d.getTime() : null;
+}
+
 function cleanNumber(value, rule) {
   if (value == null) return { ok: true, value: null };
   const raw = typeof value === 'string' ? value.trim() : value;
@@ -223,6 +242,7 @@ export function cleanEntry(raw) {
     id: cleanString(raw.id || `e-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, '', 80),
     person,
     date,
+    time: cleanTime(raw.time), // measurement time-of-day from the screenshot; null if unknown
     source: cleanString(raw.source, 'Manual', 24),
     note: cleanString(raw.note, '', 240),
   };
@@ -237,15 +257,28 @@ export function cleanEntry(raw) {
   return hasMeasurement ? out : null;
 }
 
+// Screenshots within an hour of each other show the SAME measurement.
+export const SAME_SCAN_MS = 60 * 60 * 1000;
+
+// Two auto-transcribed entries belong to the same scan when same person and their
+// measurement instants are within an hour. When either lacks a time, fall back to
+// same calendar date.
+function sameScan(a, b) {
+  if (a.person !== b.person) return false;
+  const ia = entryInstant(a);
+  const ib = entryInstant(b);
+  if (a.time && b.time && ia != null && ib != null) return Math.abs(ia - ib) <= SAME_SCAN_MS;
+  return a.date === b.date;
+}
+
 // One scan often arrives as several screenshots (different InBody screens), each yielding
-// a partial entry. Fold an auto-transcribed entry into an existing same-person/same-date
-// auto entry when no field conflicts; otherwise append it. Returns the surviving entry.
+// a partial entry. Fold an auto-transcribed entry into an existing same-scan auto entry
+// when no field conflicts; otherwise append it. Returns the surviving entry.
 export function addOrMergeAutoEntry(data, entry) {
   const target = data.entries.find(
     (e) =>
       String(e.id).startsWith('e-upload-') &&
-      e.person === entry.person &&
-      e.date === entry.date &&
+      sameScan(e, entry) &&
       FIELDS.every((f) => e[f] == null || entry[f] == null || e[f] === entry[f]),
   );
   if (!target) {
@@ -255,6 +288,7 @@ export function addOrMergeAutoEntry(data, entry) {
   for (const f of FIELDS) {
     if (target[f] == null) target[f] = entry[f];
   }
+  if (!target.time && entry.time) target.time = entry.time;
   if (target.source === 'Screenshot' && entry.source !== 'Screenshot') target.source = entry.source;
   target.note = 'Auto-transcribed by Claude from screenshots';
   return target;
